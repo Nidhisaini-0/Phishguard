@@ -1,0 +1,161 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PhishGuard - Is this link safe?</title>
+<style>
+  :root {
+    --bg: #0f172a; --card: #1e293b; --text: #e2e8f0; --muted: #94a3b8;
+    --green: #22c55e; --yellow: #eab308; --red: #ef4444; --off: #334155;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; min-height: 100vh; background: var(--bg); color: var(--text);
+    font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    display: flex; justify-content: center; padding: 40px 16px;
+  }
+  .wrap { width: 100%; max-width: 640px; }
+  h1 { margin: 0 0 4px; font-size: 2rem; }
+  h1 span { color: var(--green); }
+  .tag { color: var(--muted); margin: 0 0 28px; }
+  .row { display: flex; gap: 10px; }
+  input {
+    flex: 1; padding: 14px 16px; font-size: 1rem; border-radius: 10px;
+    border: 2px solid var(--off); background: var(--card); color: var(--text); outline: none;
+  }
+  input:focus { border-color: #38bdf8; }
+  button {
+    padding: 14px 22px; font-size: 1rem; font-weight: 600; border: 0; border-radius: 10px;
+    background: #38bdf8; color: #0f172a; cursor: pointer;
+  }
+  button:disabled { opacity: .6; cursor: wait; }
+  .examples { margin: 12px 0 0; font-size: .85rem; color: var(--muted); }
+  .examples a { color: #38bdf8; cursor: pointer; margin-right: 10px; text-decoration: underline; }
+  #result { display: none; margin-top: 28px; background: var(--card); border-radius: 16px; padding: 24px; }
+  .top { display: flex; align-items: center; gap: 22px; }
+  .light { display: flex; flex-direction: column; gap: 8px; background: #0b1220; padding: 12px; border-radius: 40px; }
+  .dot { width: 34px; height: 34px; border-radius: 50%; background: var(--off); transition: all .4s; }
+  .dot.on.red { background: var(--red); box-shadow: 0 0 18px var(--red); }
+  .dot.on.yellow { background: var(--yellow); box-shadow: 0 0 18px var(--yellow); }
+  .dot.on.green { background: var(--green); box-shadow: 0 0 18px var(--green); }
+  .verdict h2 { margin: 0; font-size: 1.6rem; }
+  .verdict p { margin: 4px 0 0; color: var(--muted); word-break: break-all; font-size: .9rem; }
+  .meter { margin: 22px 0 6px; height: 14px; background: var(--off); border-radius: 8px; overflow: hidden; }
+  .bar { height: 100%; width: 0; border-radius: 8px; transition: width .8s ease, background .4s; }
+  .scoreline { display: flex; justify-content: space-between; color: var(--muted); font-size: .85rem; }
+  h3 { margin: 22px 0 8px; font-size: 1rem; }
+  ul { margin: 0; padding: 0; list-style: none; }
+  li { padding: 10px 12px; margin-bottom: 8px; background: #0b1220; border-radius: 8px; border-left: 4px solid var(--off); }
+  .tip { margin-top: 18px; font-size: .9rem; color: var(--muted); }
+  .err { color: var(--red); margin-top: 16px; }
+  footer { margin-top: 30px; text-align: center; color: var(--muted); font-size: .8rem; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Phish<span>Guard</span></h1>
+  <p class="tag">Paste a link before you click it. We'll tell you if it looks like a scam.</p>
+
+  <div class="row">
+    <input id="url" type="text" placeholder="https://example.com/login" autocomplete="off">
+    <button id="btn">Check</button>
+  </div>
+  <div class="examples">
+    Try:
+    <a data-u="https://www.google.com">safe site</a>
+    <a data-u="http://paypa1.com">fake brand</a>
+    <a data-u="http://secure.login.verify.bank-update.xyz/account">scam-style link</a>
+  </div>
+  <div id="error" class="err"></div>
+
+  <div id="result">
+    <div class="top">
+      <div class="light">
+        <div class="dot" id="d-red"></div>
+        <div class="dot" id="d-yellow"></div>
+        <div class="dot" id="d-green"></div>
+      </div>
+      <div class="verdict">
+        <h2 id="title"></h2>
+        <p id="shown"></p>
+      </div>
+    </div>
+    <div class="meter"><div class="bar" id="bar"></div></div>
+    <div class="scoreline"><span>Safe</span><span id="score"></span><span>Dangerous</span></div>
+    <h3>Why this verdict?</h3>
+    <ul id="reasons"></ul>
+    <div class="tip" id="tip"></div>
+  </div>
+
+  <footer>Risk scores are estimates, not guarantees. When in doubt, don't click.</footer>
+</div>
+
+<script>
+const $ = id => document.getElementById(id);
+const COLORS = { green: "#22c55e", yellow: "#eab308", red: "#ef4444" };
+const TITLES = {
+  green: "Looks safe",
+  yellow: "Be careful",
+  red: "Likely a scam"
+};
+const TIPS = {
+  green: "Tip: even safe-looking links can be risky. Never enter a password after clicking a link in a message; type the website address yourself.",
+  yellow: "Tip: don't enter passwords or payment details here. If the link came from a message, contact the sender another way to confirm it.",
+  red: "Tip: do not open this link or enter any information. Report the message as phishing and delete it."
+};
+
+async function check() {
+  const url = $("url").value.trim();
+  $("error").textContent = "";
+  if (!url) { $("error").textContent = "Please paste a link first."; return; }
+
+  $("btn").disabled = true; $("btn").textContent = "Checking...";
+  try {
+    const res = await fetch("/api/check", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ url })
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || "Something went wrong");
+    show(data);
+  } catch (e) {
+    $("error").textContent = e.message;
+  } finally {
+    $("btn").disabled = false; $("btn").textContent = "Check";
+  }
+}
+
+function show(d) {
+  $("result").style.display = "block";
+  ["red", "yellow", "green"].forEach(c => $("d-" + c).className = "dot " + (c === d.verdict ? "on " + c : ""));
+  $("title").textContent = TITLES[d.verdict];
+  $("title").style.color = COLORS[d.verdict];
+  $("shown").textContent = d.url;
+  $("score").textContent = "Risk score: " + d.score + "/100";
+  $("tip").textContent = TIPS[d.verdict];
+
+  const bar = $("bar");
+  bar.style.width = "0";
+  bar.style.background = COLORS[d.verdict];
+  requestAnimationFrame(() => requestAnimationFrame(() => bar.style.width = d.score + "%"));
+
+  const list = $("reasons");
+  list.innerHTML = "";
+  d.reasons.forEach(r => {
+    const li = document.createElement("li");
+    li.textContent = r;                      // textContent prevents HTML injection
+    li.style.borderLeftColor = COLORS[d.verdict];
+    list.appendChild(li);
+  });
+}
+
+$("btn").addEventListener("click", check);
+$("url").addEventListener("keydown", e => { if (e.key === "Enter") check(); });
+document.querySelectorAll(".examples a").forEach(a =>
+  a.addEventListener("click", () => { $("url").value = a.dataset.u; check(); })
+);
+</script>
+</body>
+</html>

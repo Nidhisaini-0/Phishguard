@@ -1,0 +1,21 @@
+{
+  "manifest_version": 2,
+  "name": "PhishGuard",
+  "version": "1.0",
+  "description": "Checks the page you're on and warns you if it looks like phishing.",
+  "permissions": ["tabs", "<all_urls>"],
+  "browser_specific_settings": {
+    "gecko": { "id": "phishguard@example.local" }
+  },
+  "background": { "scripts": ["background.js"] },
+  "browser_action": {
+    "default_title": "PhishGuard",
+    "default_popup": "popup.html"
+  },
+  "content_scripts": [
+    {
+      "matches": ["http://*/*", "https://*/*"],
+      "js": ["content.js"]
+    }
+  ]
+}
